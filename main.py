@@ -80,6 +80,8 @@ def lookup_cname(host):
         return None, False
     try:
         answers = dns.resolver.resolve(name, "CNAME")
+        # Only the first answer is used. A name should carry one CNAME,
+        # and if a broken zone returns more, the rest are never compared.
         for answer in answers:
             return str(answer.target).rstrip("."), True
         return None, True
@@ -96,6 +98,8 @@ def provider_for_cname(cname):
         return None
     lowered = cname.lower().rstrip(".")
     for suffix, provider in CNAME_PROVIDERS.items():
+        # The suffix match demands a dot boundary, so a host named
+        # notgithub.io or evilgithub.io maps to no provider at all.
         if lowered == suffix or lowered.endswith("." + suffix):
             return provider
     return None
@@ -122,6 +126,10 @@ def check_one(subdomain):
     try:
         # No raise_for_status: the GitHub Pages and S3 fingerprints are
         # served on 404 and error responses, and those bodies are read too.
+        # Plain http only, never https, and the name goes into the URL
+        # exactly as listed. A provider fingerprint served only over
+        # https is missed, and checked still becomes True from this one
+        # response even when the DNS lookup above never completed.
         response = requests.get(f"http://{subdomain}", timeout=5)
         body = response.text
         checked = True
@@ -211,6 +219,8 @@ def main():
         sys.exit(1)
 
     candidates = [s for s in subdomains if isinstance(s, str)]
+    # pool.map keeps the results in list order regardless of which check
+    # finished first, so the report lines up with the input file.
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
         results = list(pool.map(check_one, candidates))
 
